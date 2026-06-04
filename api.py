@@ -561,13 +561,17 @@ def _normalize_response(raw: Optional[str]) -> str:
     return "CARD_DECLINED"
 
 
-def _parse_gql_errors(errors: list) -> str:
+def _parse_gql_errors(errors: list) -> tuple[str, str]:
     """
     Try to extract a meaningful response code from a GraphQL errors list.
-    Conservative: only returns a specific code for very clear matches.
-    Returns 'GRAPHQL_ERROR' for anything ambiguous so callers can retry.
+    Returns (code, detail) tuple. detail contains the raw error messages
+    for debugging when code is GRAPHQL_ERROR.
     """
+    raw_messages = []
     for err in errors:
+        msg = str(err.get("message") or "")
+        if msg:
+            raw_messages.append(msg)
         for field in ("code", "nonLocalizedMessage", "localizedMessage",
                       "message", "localizedMessageHtml", "messageUntranslated"):
             raw = str(err.get(field) or "")
@@ -575,28 +579,46 @@ def _parse_gql_errors(errors: list) -> str:
                 continue
             norm = _normalize_response(raw)
             if norm != "CARD_DECLINED":
-                return norm
+                return norm, raw
             upper = raw.upper()
-            # Only match very specific card-decline phrases (not broad substrings)
             if any(k in upper for k in ("PAYMENT_DECLINED", "CARD_DECLINED",
                                          "CHARGE_DECLINED", "CARD_WAS_DECLINED",
                                          "FRAUD")):
-                return "CARD_DECLINED"
+                return "CARD_DECLINED", raw
             if any(k in upper for k in ("CHECKOUT_ALREADY_COMPLETED", "ALREADY_ACCEPTED")):
-                return "CARD_DECLINED"
+                return "CARD_DECLINED", raw
             if any(k in upper for k in ("SESSION_EXPIRED", "SESSION_INVALID",
                                          "TOKEN_EXPIRED", "INVALID_SESSION")):
-                return "SESSION_EXPIRED"
+                return "SESSION_EXPIRED", raw
             if any(k in upper for k in ("LOGIN_REQUIRED", "ACCOUNT_REQUIRED",
                                          "CUSTOMER_DISABLED")):
-                return "SITE_REQUIRES_LOGIN"
+                return "SITE_REQUIRES_LOGIN", raw
             if any(k in upper for k in ("OUT_OF_STOCK", "SOLD_OUT",
                                          "INVENTORY_CLAIM", "INVENTORY_RESERVATION")):
-                return "NO_PRODUCT"
+                return "NO_PRODUCT", raw
             if any(k in upper for k in ("THROTTLED", "RATE_LIMIT", "TOO_MANY_REQUESTS",
                                          "RATE_LIMITED", "RETRY_LATER")):
-                return "THROTTLED"
-    return "GRAPHQL_ERROR"
+                return "THROTTLED", raw
+    detail = "; ".join(raw_messages[:3]) if raw_messages else "unknown error"
+    return "GRAPHQL_ERROR", detail
+
+
+def _is_schema_error(errors: list) -> bool:
+    """Detect GraphQL schema/validation errors that won't resolve on retry."""
+    for err in errors:
+        msg = str(err.get("message") or "").lower()
+        ext = err.get("extensions") or {}
+        code = str(ext.get("code") or "").lower()
+        if code in ("undefinedfield", "variablecoercionfailed", "unknowntype",
+                     "argumentliteralsinconsistenttype", "fieldsconflict",
+                     "variablenotdefined", "missingrequiredargument"):
+            return True
+        if any(k in msg for k in ("unknown type", "unknown field", "is not defined",
+                                   "expected type", "was provided invalid value",
+                                   "field is not defined", "argument is not accepted",
+                                   "parse error", "syntax error")):
+            return True
+    return False
 
 
 def _make_session(proxy_str: Optional[str], ua: Optional[str] = None) -> tuple[AsyncSession, bool]:
@@ -1357,8 +1379,8 @@ async def validate_card(
     client_hints = _client_hints_for_ua(ua)
 
 
-    def _r(response: str, charged: str = "False", approved: str = "False") -> dict:
-        return {
+    def _r(response: str, charged: str = "False", approved: str = "False", detail: str = "") -> dict:
+        d = {
             "Response": response,
             "CC":       f"{cc}|{month}|{year}|{cvv}",
             "Price":    price,
@@ -1368,6 +1390,9 @@ async def validate_card(
             "Approved": approved,
             "Time":     f"{round(time.time() - t0, 2)}s",
         }
+        if detail:
+            d["Detail"] = detail[:500]
+        return d
 
     sem = _site_semaphores[hostname]
     session, owned = _make_session(proxy_str, ua)
@@ -1677,18 +1702,19 @@ async def validate_card(
 
             gql_headers = {
                 **base_headers,
-                "shopify-checkout-client":  "checkout-web/1.0",
-                "shopify-checkout-source":  f'id="{attempt_token}", type="cn"',
+                "Accept": "application/json",
+                "shopify-checkout-authorization": sst,
+                "shopify-checkout-source": f'id="{attempt_token}", type="cn"',
                 "x-checkout-one-session-token": sst,
-                "sec-fetch-dest": "empty",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-site": "same-origin",
                 "x-checkout-web-deploy-stage": "production",
                 "x-checkout-web-server-handling": "fast",
                 "x-checkout-web-server-rendering": "yes",
+                "sec-fetch-dest": "empty",
+                "sec-fetch-mode": "cors",
+                "sec-fetch-site": "same-origin",
             }
             if build_id:
-                gql_headers["x-checkout-web-build-id"]     = build_id
+                gql_headers["x-checkout-web-build-id"] = build_id
             if source_token:
                 gql_headers["x-checkout-web-source-id"] = source_token
 
@@ -1814,21 +1840,21 @@ async def validate_card(
 
                 gql_errs = resp_json.get("errors", []) or []
                 if gql_errs:
-                    log.debug("shipping proposal GQL errors: %s", gql_errs)
-                    interpreted = _parse_gql_errors(gql_errs)
-                    # For checkout-level errors (not card step), only bail
-                    # immediately on non-retryable state errors
+                    log.warning("shipping proposal GQL errors: %s",
+                                [e.get("message", e) for e in gql_errs][:3])
+                    interpreted, gql_detail = _parse_gql_errors(gql_errs)
                     if interpreted in ("SESSION_EXPIRED", "SITE_REQUIRES_LOGIN",
                                        "THROTTLED", "NO_PRODUCT"):
-                        return _r(interpreted)
+                        return _r(interpreted, detail=gql_detail)
+                    if _is_schema_error(gql_errs):
+                        return _r("GRAPHQL_ERROR", detail=gql_detail)
                     if attempt < 2:
                         await asyncio.sleep(1.5)
                         continue
-                    return _r(interpreted if interpreted != "GRAPHQL_ERROR"
-                              else "GRAPHQL_ERROR")
+                    return _r(interpreted, detail=gql_detail)
 
             if not resp_json or not (resp_json.get("data") or {}).get("session"):
-                return _r("GRAPHQL_ERROR")
+                return _r("GRAPHQL_ERROR", detail="no session data in response")
 
             # Refresh session token from shipping proposal response
             try:
@@ -1842,12 +1868,11 @@ async def validate_card(
             session_data = resp_json["data"]["session"]
             negotiate    = session_data.get("negotiate") or {}
 
-            # Check negotiate-level errors first
             neg_errors = negotiate.get("errors") or []
             if neg_errors:
-                code = _parse_gql_errors(neg_errors)
+                code, neg_detail = _parse_gql_errors(neg_errors)
                 if code != "GRAPHQL_ERROR":
-                    return _r(code)
+                    return _r(code, detail=neg_detail)
 
             result_obj  = negotiate.get("result") or {}
             result_type = result_obj.get("__typename", "")
@@ -2031,8 +2056,8 @@ async def validate_card(
                 log.debug("delivery proposal response keys: %s",
                           list(d_resp.keys()) if isinstance(d_resp, dict) else type(d_resp))
                 if "errors" in d_resp and "data" not in d_resp:
-                    log.debug("delivery proposal schema errors: %s",
-                              [e.get("message") for e in d_resp.get("errors", [])][:3])
+                    log.warning("delivery proposal schema errors: %s",
+                                [e.get("message") for e in d_resp.get("errors", [])][:3])
                 # Refresh session token from delivery response
                 _del_sst = dr.headers.get("x-checkout-one-session-token")
                 if _del_sst:
@@ -2409,7 +2434,8 @@ async def validate_card(
                 s_data = (s_resp.get("data") or {}).get("submitForCompletion") or {}
                 if not s_data:
                     errs = s_resp.get("errors") or []
-                    log.debug("submit no data, top-level errors: %s", errs)
+                    log.warning("submit no data, top-level errors: %s",
+                                [e.get("message", e) for e in errs][:3])
                     if errs:
                         for err_item in errs:
                             for fld in ("code", "message"):
@@ -2419,7 +2445,10 @@ async def validate_card(
                                     if norm != "CARD_DECLINED":
                                         approved = "True" if norm in ("INSUFFICIENT_FUNDS", "INVALID_CVC", "3DS_REQUIRED") else "False"
                                         return _r(norm, approved=approved)
-                    return _r("GRAPHQL_ERROR")
+                    submit_detail = "; ".join(
+                        str(e.get("message", e)) for e in errs[:3]
+                    ) if errs else "no submitForCompletion data"
+                    return _r("GRAPHQL_ERROR", detail=submit_detail)
 
                 stype = s_data.get("__typename", "")
 
