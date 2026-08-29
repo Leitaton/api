@@ -1735,7 +1735,6 @@ async def validate_card(
                                     "countryCode": country_code, "postalCode": s_zip,
                                     "firstName": first, "lastName": last,
                                     "zoneCode": state, "phone": phone,
-                                    "provinceCode": state,
                                 }
                             },
                             "selectedDeliveryStrategy": {
