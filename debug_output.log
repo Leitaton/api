@@ -6,21 +6,21 @@
   Pool:            500 total / 25 per host
   Site concurrency:15
   Product cache:   300s TTL
-  Max price:       $100.00
+  Max price:       $8.00
   Cards file:      cards.txt
 ============================================================
 
-2026-08-29 16:03:44,978 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:45,437 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:45,650 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:45,742 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,185 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,229 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,239 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,358 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,387 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,405 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,550 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,576 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,577 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
-2026-08-29 16:03:46,652 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:16,859 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:16,986 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,187 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,240 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,272 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,335 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,437 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,558 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,599 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,786 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,860 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,889 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,895 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
+2026-08-29 19:38:17,907 [WARNING] shopify: Shopify Validator API started pool=500/host concurrency=15/site
